@@ -18,7 +18,7 @@ def build(input_tensor, n_classes=1000, rgb_mean=None, training=True):
     keep_prob = 0.5
 
     # subtract image mean
-    net = tf.sub(input_tensor, mu, name="input_mean_centered")
+    net = tf.subtract(input_tensor, mu, name="input_mean_centered")
 
     # block 1 -- outputs 112x112x64
     net = L.conv(net, name="conv1_1", kh=3, kw=3, n_out=64)
