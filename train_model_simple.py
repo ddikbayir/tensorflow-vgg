@@ -11,8 +11,8 @@ import tools
 import dataset
 import yaml
 import argparse
-
-
+import time
+from tensorflow.python.client import timeline
 # =====================================
 # Training configuration default params
 # =====================================
@@ -29,7 +29,7 @@ def build_model(input_data_tensor, input_label_tensor):
     logits = vgg.build(images, n_classes=num_classes, training=True)
     probs = tf.nn.softmax(logits)
     loss_classify = L.loss(logits, tf.one_hot(input_label_tensor, num_classes))
-    loss_weight_decay = tf.reduce_sum(tf.pack([tf.nn.l2_loss(i) for i in tf.get_collection('variables')]))
+    loss_weight_decay = tf.reduce_sum(tf.stack([tf.nn.l2_loss(i) for i in tf.get_collection('variables')]))
     loss = loss_classify + weight_decay*loss_weight_decay
     error_top5 = L.topK_error(probs, input_label_tensor, K=5)
     error_top1 = L.topK_error(probs, input_label_tensor, K=1)
@@ -74,7 +74,7 @@ def train(trn_data_generator, vld_data=None):
     # ===================================
     # initialize and run training session
     # ===================================
-    log = tools.MetricsLogger(train_log_fpath)
+    
     config_proto = tf.ConfigProto(allow_soft_placement=True)
     sess = tf.Session(graph=G, config=config_proto)
 
@@ -107,19 +107,20 @@ def train(trn_data_generator, vld_data=None):
 
             ops = [grad_step] + [model[k] for k in sorted(model.keys())]
             inputs = {input_data_tensor: X_trn, input_label_tensor: Y_trn}
-            results = sess.run(ops, feed_dict=inputs, run_metadata=run_metadata, options=options)
-            profile(run_metadata, step)
+            start_time = time.time()
+	    results = sess.run(ops, feed_dict=inputs, run_metadata=run_metadata, options=options)
+            elapsed = time.time() - start_time
+	    
+	    samples_p_second = 0
+	    print("Ex/sec: %.1f" % batch_size/float(elapsed))
+	    profile(run_metadata, step)
 
             results = dict(zip(sorted(model.keys()), results[1:]))
             print("TRN step:%-5d error_top1: %.4f, error_top5: %.4f, loss:%s" % (step,
                                                                                  results["error_top1"],
                                                                                  results["error_top5"],
                                                                                  results["loss"]))
-            log.report(step=step,
-                       split="TRN",
-                       error_top5=float(results["error_top5"]),
-                       error_top1=float(results["error_top5"]),
-                       loss=float(results["loss"]))
+            
 
             # report evaluation metrics every 10 training steps
             if (step % vld_iter == 0):
@@ -135,11 +136,7 @@ def train(trn_data_generator, vld_data=None):
                                                                                      results["error_top1"],
                                                                                      results["error_top5"],
                                                                                      results["loss"]))
-                log.report(step=step,
-                           split="VLD",
-                           error_top5=float(results["error_top5"]),
-                           error_top1=float(results["error_top1"]),
-                           loss=float(results["loss"]))
+             
 
             if (step % checkpoint_iter == 0) or (step + 1 == num_steps):
                 print("-- saving check point")
