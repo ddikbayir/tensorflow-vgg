@@ -98,49 +98,6 @@ def train(trn_data_generator, vld_data=None):
             print("-- loading weights from %s" % pretrained_weights)
             tools.load_weights(G, pretrained_weights)
 
-
-        # Start training loop
-        for step in range(num_steps):
-            batch_train = trn_data_generator.next()
-            X_trn = np.array(batch_train[0])
-            Y_trn = np.array(batch_train[1])
-
-            ops = [grad_step] + [model[k] for k in sorted(model.keys())]
-            inputs = {input_data_tensor: X_trn, input_label_tensor: Y_trn}
-            start_time = time.time()
-	    results = sess.run(ops, feed_dict=inputs, run_metadata=run_metadata, options=options)
-            elapsed = time.time() - start_time
-	    
-	    samples_p_second = 0
-	    print("Ex/sec: %.1f" % batch_size/float(elapsed))
-	    profile(run_metadata, step)
-
-            results = dict(zip(sorted(model.keys()), results[1:]))
-            print("TRN step:%-5d error_top1: %.4f, error_top5: %.4f, loss:%s" % (step,
-                                                                                 results["error_top1"],
-                                                                                 results["error_top5"],
-                                                                                 results["loss"]))
-            
-
-            # report evaluation metrics every 10 training steps
-            if (step % vld_iter == 0):
-                print("-- running evaluation on vld split")
-                X_vld = vld_data[0]
-                Y_vld = vld_data[1]
-                inputs = [input_data_tensor, input_label_tensor]
-                args = [X_vld, Y_vld]
-                ops = [model[k] for k in sorted(model.keys())]
-                results = tools.iterative_reduce(ops, inputs, args, batch_size=1, fn=lambda x: np.mean(x, axis=0))
-                results = dict(zip(sorted(model.keys()), results))
-                print("VLD step:%-5d error_top1: %.4f, error_top5: %.4f, loss:%s" % (step,
-                                                                                     results["error_top1"],
-                                                                                     results["error_top5"],
-                                                                                     results["loss"]))
-             
-
-            if (step % checkpoint_iter == 0) or (step + 1 == num_steps):
-                print("-- saving check point")
-                tools.save_weights(G, pth.join(checkpoint_dir, "weights.%s" % step))
     options = tf.profiler.ProfileOptionBuilder.time_and_memory()
     options["min_bytes"] = 0
     options["min_micros"] = 0
@@ -201,6 +158,49 @@ def train(trn_data_generator, vld_data=None):
 
     with open('tensors_sz.json', 'w') as f:
         json.dump(operations_tensors, f)
+
+        # Start training loop
+        for step in range(num_steps):
+            batch_train = trn_data_generator.next()
+            X_trn = np.array(batch_train[0])
+            Y_trn = np.array(batch_train[1])
+
+            ops = [grad_step] + [model[k] for k in sorted(model.keys())]
+            inputs = {input_data_tensor: X_trn, input_label_tensor: Y_trn}
+            start_time = time.time()
+	    results = sess.run(ops, feed_dict=inputs, run_metadata=run_metadata, options=options)
+            elapsed = time.time() - start_time
+	    
+	    samples_p_second = 0
+	    print("Ex/sec: %.1f" % batch_size/float(elapsed))
+	    profile(run_metadata, step)
+
+            results = dict(zip(sorted(model.keys()), results[1:]))
+            print("TRN step:%-5d error_top1: %.4f, error_top5: %.4f, loss:%s" % (step,
+                                                                                 results["error_top1"],
+                                                                                 results["error_top5"],
+                                                                                 results["loss"]))
+            
+
+            # report evaluation metrics every 10 training steps
+            if (step % vld_iter == 0):
+                print("-- running evaluation on vld split")
+                X_vld = vld_data[0]
+                Y_vld = vld_data[1]
+                inputs = [input_data_tensor, input_label_tensor]
+                args = [X_vld, Y_vld]
+                ops = [model[k] for k in sorted(model.keys())]
+                results = tools.iterative_reduce(ops, inputs, args, batch_size=1, fn=lambda x: np.mean(x, axis=0))
+                results = dict(zip(sorted(model.keys()), results))
+                print("VLD step:%-5d error_top1: %.4f, error_top5: %.4f, loss:%s" % (step,
+                                                                                     results["error_top1"],
+                                                                                     results["error_top5"],
+                                                                                     results["loss"]))
+             
+
+            if (step % checkpoint_iter == 0) or (step + 1 == num_steps):
+                print("-- saving check point")
+                tools.save_weights(G, pth.join(checkpoint_dir, "weights.%s" % step))
 
 def main():
     batch_size = config['batch_size']
