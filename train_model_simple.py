@@ -29,7 +29,7 @@ def build_model(input_data_tensor, input_label_tensor):
     logits = vgg.build(images, n_classes=num_classes, training=True)
     probs = tf.nn.softmax(logits)
     loss_classify = L.loss(logits, tf.one_hot(input_label_tensor, num_classes))
-    loss_weight_decay = tf.reduce_sum(tf.stack([tf.nn.l2_loss(i) for i in tf.get_collection('variables')]))
+    loss_weight_decay = tf.reduce_sum(tf.pack([tf.nn.l2_loss(i) for i in tf.get_collection('variables')]))
     loss = loss_classify + weight_decay*loss_weight_decay
     error_top5 = L.topK_error(probs, input_label_tensor, K=5)
     error_top1 = L.topK_error(probs, input_label_tensor, K=1)
@@ -74,7 +74,7 @@ def train(trn_data_generator, vld_data=None):
     # ===================================
     # initialize and run training session
     # ===================================
-   
+    log = tools.MetricsLogger(train_log_fpath)
     config_proto = tf.ConfigProto(allow_soft_placement=True)
     sess = tf.Session(graph=G, config=config_proto)
 
@@ -115,7 +115,12 @@ def train(trn_data_generator, vld_data=None):
                                                                                  results["error_top1"],
                                                                                  results["error_top5"],
                                                                                  results["loss"]))
-            
+            log.report(step=step,
+                       split="TRN",
+                       error_top5=float(results["error_top5"]),
+                       error_top1=float(results["error_top5"]),
+                       loss=float(results["loss"]))
+
             # report evaluation metrics every 10 training steps
             if (step % vld_iter == 0):
                 print("-- running evaluation on vld split")
@@ -130,7 +135,11 @@ def train(trn_data_generator, vld_data=None):
                                                                                      results["error_top1"],
                                                                                      results["error_top5"],
                                                                                      results["loss"]))
-                
+                log.report(step=step,
+                           split="VLD",
+                           error_top5=float(results["error_top5"]),
+                           error_top1=float(results["error_top1"]),
+                           loss=float(results["loss"]))
 
             if (step % checkpoint_iter == 0) or (step + 1 == num_steps):
                 print("-- saving check point")
