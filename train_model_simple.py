@@ -151,7 +151,7 @@ def train(trn_data_generator, vld_data=None):
             tools.load_weights(G, pretrained_weights)
 
     # Start training loop
-    num_steps = 300
+    num_steps = 100
     for step in range(num_steps):
         batch_train = trn_data_generator.next()
         X_trn = np.array(batch_train[0])
