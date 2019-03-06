@@ -22,6 +22,8 @@ config = {}
 
 # customize your model here
 # =========================
+
+
 def build_model(input_data_tensor, input_label_tensor):
     num_classes = config["num_classes"]
     weight_decay = config["weight_decay"]
@@ -29,7 +31,8 @@ def build_model(input_data_tensor, input_label_tensor):
     logits = vgg.build(images, n_classes=num_classes, training=True)
     probs = tf.nn.softmax(logits)
     loss_classify = L.loss(logits, tf.one_hot(input_label_tensor, num_classes))
-    loss_weight_decay = tf.reduce_sum(tf.stack([tf.nn.l2_loss(i) for i in tf.get_collection('variables')]))
+    loss_weight_decay = tf.reduce_sum(
+        tf.stack([tf.nn.l2_loss(i) for i in tf.get_collection('variables')]))
     loss = loss_classify + weight_decay*loss_weight_decay
     error_top5 = L.topK_error(probs, input_label_tensor, K=5)
     error_top1 = L.topK_error(probs, input_label_tensor, K=1)
@@ -70,17 +73,66 @@ def train(trn_data_generator, vld_data=None):
         grad_step = optimizer.apply_gradients(grads)
         init = tf.initialize_all_variables()
 
+        operations_tensors = {}
+        operations_names = G.get_operations()
+        print(operations_names)
+        count1 = 0
+        count2 = 0
+
+        for operation in operations_names:
+            operation_name = operation.name
+            operations_info = G.get_operation_by_name(operation_name).values()
+            if len(operations_info) > 0:
+                if not (operations_info[0].shape.ndims is None):
+                    operation_shape = operations_info[0].shape.as_list()
+                    operation_dtype_size = operations_info[0].dtype.size
+                    if not (operation_dtype_size is None):
+                        operation_no_of_elements = 1
+                        for dim in operation_shape:
+                            if not(dim is None):
+                                operation_no_of_elements = operation_no_of_elements * dim
+                        total_size = operation_no_of_elements * operation_dtype_size
+                        operations_tensors[operation_name] = total_size
+                    else:
+                        count1 = count1 + 1
+                else:
+                    count1 = count1 + 1
+                    operations_tensors[operation_name] = -1
+
+                #   print('no shape_1: ' + operation_name)
+                #  print('no shape_2: ' + str(operations_info))
+                #  operation_namee = operation_name + ':0'
+                # tensor = tf.get_default_graph().get_tensor_by_name(operation_namee)
+                # print('no shape_3:' + str(tf.shape(tensor)))
+                # print('no shape:' + str(tensor.get_shape()))
+
+            else:
+                # print('no info :' + operation_name)
+                # operation_namee = operation.name + ':0'
+                count2 = count2 + 1
+                operations_tensors[operation_name] = -1
+
+                # try:
+                #   tensor = tf.get_default_graph().get_tensor_by_name(operation_namee)
+                # print(tensor)
+                # print(tf.shape(tensor))
+                # except:
+                # print('no tensor: ' + operation_namee)
+        print(count1)
+        print(count2)
+
+        with open('tensors_sz.json', 'w') as f:
+            json.dump(operations_tensors, f)
 
     # ===================================
     # initialize and run training session
     # ===================================
-    
+
     config_proto = tf.ConfigProto(allow_soft_placement=True)
     sess = tf.Session(graph=G, config=config_proto)
 
     run_metadata = tf.RunMetadata()
     options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
-
 
     def profile(run_metadata, epoch=0):
         with open('profs/timeline_step' + str(epoch) + '.json', 'w') as f:
@@ -91,98 +143,39 @@ def train(trn_data_generator, vld_data=None):
 
     sess.run(init, run_metadata=run_metadata, options=options)
     profile(run_metadata, -1)
-    
+
     tf.train.start_queue_runners(sess=sess)
     with sess.as_default():
         if pretrained_weights:
             print("-- loading weights from %s" % pretrained_weights)
             tools.load_weights(G, pretrained_weights)
 
-    options = tf.profiler.ProfileOptionBuilder.time_and_memory()
-    options["min_bytes"] = 0
-    options["min_micros"] = 0
-    options["output"] = 'file:outfile=ooo.txt'
-    options["select"] = ("bytes", "peak_bytes", "output_bytes",
-                            "residual_bytes")
-    
+    # Start training loop
+    num_steps = 300
+    for step in range(num_steps):
+        batch_train = trn_data_generator.next()
+        X_trn = np.array(batch_train[0])
+        Y_trn = np.array(batch_train[1])
+        options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+        ops = [grad_step] + [model[k] for k in sorted(model.keys())]
+        inputs = {input_data_tensor: X_trn, input_label_tensor: Y_trn}
+        start_time = time.time()
+        results = sess.run(ops, feed_dict=inputs,
+                           run_metadata=run_metadata, options=options)
+        elapsed = time.time() - start_time
 
+        samples_p_second = 0
+        print("Ex/sec: %.1f" % (float(batch_size)/float(elapsed)))
+        profile(run_metadata, step)
 
-    operations_tensors = {}
-    operations_names = tf.get_default_graph().get_operations()
-    count1 = 0
-    count2 = 0
+        results = dict(zip(sorted(model.keys()), results[1:]))
+        print("TRN step:%-5d error_top1: %.4f, error_top5: %.4f, loss:%s" % (step,
+                                                                             results["error_top1"],
+                                                                             results["error_top5"],
+                                                                             results["loss"]))
 
-    for operation in operations_names:
-        operation_name = operation.name
-        operations_info = tf.get_default_graph().get_operation_by_name(operation_name).values()
-        if len(operations_info) > 0:
-            if not (operations_info[0].shape.ndims is None):
-                operation_shape = operations_info[0].shape.as_list()
-                operation_dtype_size = operations_info[0].dtype.size
-                if not (operation_dtype_size is None):
-                    operation_no_of_elements = 1
-                    for dim in operation_shape:
-                        if not(dim is None):
-                            operation_no_of_elements = operation_no_of_elements * dim
-                    total_size = operation_no_of_elements * operation_dtype_size
-                    operations_tensors[operation_name] = total_size
-                else:
-                    count1 = count1 + 1
-            else:
-                count1 = count1 + 1
-                operations_tensors[operation_name] = -1
-
-            #   print('no shape_1: ' + operation_name)
-            #  print('no shape_2: ' + str(operations_info))
-            #  operation_namee = operation_name + ':0'
-            # tensor = tf.get_default_graph().get_tensor_by_name(operation_namee)
-            # print('no shape_3:' + str(tf.shape(tensor)))
-            # print('no shape:' + str(tensor.get_shape()))
-
-        else:
-            # print('no info :' + operation_name)
-            # operation_namee = operation.name + ':0'
-            count2 = count2 + 1
-            operations_tensors[operation_name] = -1
-
-            # try:
-            #   tensor = tf.get_default_graph().get_tensor_by_name(operation_namee)
-            # print(tensor)
-            # print(tf.shape(tensor))
-            # except:
-            # print('no tensor: ' + operation_namee)
-    print(count1)
-    print(count2)
-
-    with open('tensors_sz.json', 'w') as f:
-        json.dump(operations_tensors, f)
-
-        # Start training loop
-        num_steps=300
-	for step in range(num_steps):
-            batch_train = trn_data_generator.next()
-            X_trn = np.array(batch_train[0])
-            Y_trn = np.array(batch_train[1])
-	    options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
-            ops = [grad_step] + [model[k] for k in sorted(model.keys())]
-            inputs = {input_data_tensor: X_trn, input_label_tensor: Y_trn}
-            start_time = time.time()
-	    results = sess.run(ops, feed_dict=inputs, run_metadata=run_metadata, options=options)
-            elapsed = time.time() - start_time
-	    
-	    samples_p_second = 0
-	    print("Ex/sec: %.1f" % (float(batch_size)/float(elapsed)))
-	    profile(run_metadata, step)
-
-            results = dict(zip(sorted(model.keys()), results[1:]))
-            print("TRN step:%-5d error_top1: %.4f, error_top5: %.4f, loss:%s" % (step,
-                                                                                 results["error_top1"],
-                                                                                 results["error_top5"],
-                                                                                 results["loss"]))
-            
-
-            # report evaluation metrics every 10 training steps
-            '''
+        # report evaluation metrics every 10 training steps
+        '''
 	    if (step % vld_iter == 0):
                 print("-- running evaluation on vld split")
                 X_vld = vld_data[0]
@@ -202,6 +195,8 @@ def train(trn_data_generator, vld_data=None):
                 print("-- saving check point")
                 tools.save_weights(G, pth.join(checkpoint_dir, "weights.%s" % step))
 	    '''
+
+
 def main():
     batch_size = config['batch_size']
     experiment_dir = config['experiment_dir']
