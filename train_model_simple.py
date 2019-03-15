@@ -128,7 +128,7 @@ def train(trn_data_generator, vld_data=None):
     # initialize and run training session
     # ===================================
 
-    config_proto = tf.ConfigProto(allow_soft_placement=True)
+    config_proto = tf.ConfigProto(log_device_placement=True, allow_soft_placement=True)
     sess = tf.Session(graph=G, config=config_proto)
 
     run_metadata = tf.RunMetadata()
@@ -152,6 +152,7 @@ def train(trn_data_generator, vld_data=None):
 
     # Start training loop
     num_steps = 100
+    tot_samples_p_second = 0
     for step in range(num_steps):
         batch_train = trn_data_generator.next()
         X_trn = np.array(batch_train[0])
@@ -164,10 +165,10 @@ def train(trn_data_generator, vld_data=None):
                            run_metadata=run_metadata, options=options)
         elapsed = time.time() - start_time
 
-        samples_p_second = 0
-        print("Ex/sec: %.1f" % (float(batch_size)/float(elapsed)))
+        samples_p_second = float(batch_size)/float(elapsed)
+        print("Ex/sec: %.1f" % samples_p_second)
         profile(run_metadata, step)
-
+        tot_samples_p_second += samples_p_second
         results = dict(zip(sorted(model.keys()), results[1:]))
         print("TRN step:%-5d error_top1: %.4f, error_top5: %.4f, loss:%s" % (step,
                                                                              results["error_top1"],
@@ -195,7 +196,7 @@ def train(trn_data_generator, vld_data=None):
                 print("-- saving check point")
                 tools.save_weights(G, pth.join(checkpoint_dir, "weights.%s" % step))
 	    '''
-
+    print("Average ex/sec: %.1f" % float(tot_samples_p_second/num_steps))
 
 def main():
     batch_size = config['batch_size']
